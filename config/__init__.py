@@ -10,7 +10,7 @@ class Endpoints:
         self.amp = "https://amp-api.music.apple.com/v1/catalog/{region}/{type}/{id}"
         self.playback = "https://play.music.apple.com/WebObjects/MZPlay.woa/wa/webPlayback"
         # self.playlist = "https://amp-api.music.apple.com/v1/catalog/{region}/albums/{playlist_id}?l=en-us&platform=web&omit[resource]=autos&include=tracks,artists&include[songs]=artists,composers&extend[url]=f"
-
+        self.amp = self.amp + '?l=zh-cn'
 class Folders:
     def __init__(self):
         self.binaries = "binaries"

@@ -1,4 +1,5 @@
 import config as toolcfg
+from platform import system
 
 class WvDecryptConfig(object):
     def __init__(self, args, content, filename, tracktype, audio_only, trackno, license_, init_data_b64, cert_data_b64=None):
@@ -25,6 +26,8 @@ class WvDecryptConfig(object):
     def build_commandline_list(self, keys):
         if self.args.mp4_decrypt:
             commandline = [toolcfg.binaries.mp4decrypt]
+            if system() != 'Windows':
+                commandline = ['mp4decrypt']
             commandline.append('--show-progress')
             for key in keys:
                 if key.type == 'CONTENT':

@@ -7,6 +7,8 @@ import time
 import json
 import m3u8
 import base64
+import os
+from PIL import Image
 import shutil
 import urllib3
 import requests
@@ -27,7 +29,11 @@ from pywidevine.L3.decrypt.wvdecrypt import WvDecrypt
 from pywidevine.L3.decrypt.wvdecryptconfig import WvDecryptConfig
 from pywidevine.L3.cdm.formats.widevine_pssh_data_pb2 import WidevinePsshData
 from colorama import init
+from platform import system
 
+SYSTYPE = 'Windows'
+if system() != 'Windows':
+  SYSTYPE = 'Other'
 REGEX = re.compile(r"//music\.apple\.com/.*/(?P<type>.*)/(?P<name>.*)/(?P<id>\d*)[\?i=]*(?P<track_id>\d*)?$")
 
 
@@ -43,7 +49,8 @@ BANNER = """
 
 > REMAKE By ReiDoBregaBR
 > SOURCE By Puyodead1
-> VERSION 2.0.0
+> Fix By Dreamfly
+> VERSION 2.0.1
 """
 class VideoTrack:
 
@@ -139,7 +146,7 @@ class AppleMusicClient:
     def __init__(self):
         self.log = logging.getLogger(__name__)
         self.args = args
-        self.args.url = self._title(args.url)
+        self.args.url = self._title(args.url.replace('\\',''))
         self.session = self.client_session()        
         self.audio_only = True if self.content_type != 'music-video' else False
         self.contents_to_be_ripped = []
@@ -202,7 +209,9 @@ class AppleMusicClient:
         self.session.verify = False
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         self.session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:95.0) Gecko/20100101 Firefox/95.0"})
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:95.0) Gecko/20100101 Firefox/95.0",
+            "Origin": "https://music.apple.com"
+        })
         self.session.cookies.update(self.cookies_())
 
         token_file = os.path.join(toolcfg.folder.cookies, 'token.txt')
@@ -232,7 +241,8 @@ class AppleMusicClient:
             "Connection": "keep-alive",
             "Sec-Fetch-Dest": "empty",
             "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-site"
+            "Sec-Fetch-Site": "same-site",
+            "Origin": "https://music.apple.com"
         })
         return self.session
 
@@ -240,7 +250,7 @@ class AppleMusicClient:
     def fetch_music_metadata(self, track_id):
 
         data = self.fetch_metadata(track_id)
-
+        # print('dreamfly',data)
         music = data["songList"][0]
 
         song_assets = next((x for x in music["assets"] if x["flavor"] == "28:ctrp256"), None)
@@ -250,6 +260,8 @@ class AppleMusicClient:
         metadata['playback'] = song_assets["URL"]
         metadata['artworkURL'] = song_assets["artworkURL"]
         metadata['license'] = music["hls-key-server-url"]
+        if not hasattr(self, 'album_name'):
+            self.album_name = metadata['playlistName']
 
         output_name = toolcfg.filenames.musics_template.format(
             track=metadata['trackNumber'],
@@ -282,8 +294,24 @@ class AppleMusicClient:
     def music_tag(self, data: dict):
         f = music_tag.load_file(self.oufn)
         for key, value in data.items():
-            f[key] = value
-        f.save()
+             # sometimes don't found
+            try:
+                if key == 'year':
+                    f[key] = int(value)
+                elif key == 'artwork':
+                    with open(os.path.join(toolcfg.folder.temp, 'img.jpg'), "wb") as img:
+                        img.write(value)
+                        img.close()
+                    im = Image.open(os.path.join(toolcfg.folder.temp, 'img.jpg'))
+                    im.load()
+                    im.save(os.path.join(toolcfg.folder.temp, 'img.png')) 
+                    with open(os.path.join(toolcfg.folder.temp, 'img.png'), 'rb') as img_in:
+                        f[key] = img_in.read()
+                else:    
+                    f[key] = value
+            except Exception as e:
+                self.log.warning(f"{key}: {value[1:5]}: {e}")
+            f.save()
         shutil.move(self.oufn, self.oufn.replace(
             toolcfg.folder.output, self.album_folder))
 
@@ -316,9 +344,10 @@ class AppleMusicClient:
             data["artwork"] = reqs.content
         else:
             self.log.warning("- Failed to Get Artwork")
-
         try:
             self.music_tag(data)
+            os.remove(os.path.join(toolcfg.folder.temp, 'img.jpg'))
+            os.remove(os.path.join(toolcfg.folder.temp, 'img.png'))    
         except Exception as e:
             self.log.warning(f"- Failed to Tag File: {e}")
 
@@ -349,8 +378,11 @@ class AppleMusicClient:
         return track_url, key_id
 
     def do_ffmpeg_fix(self, track):
+        ffmpeg = 'ffmpeg'
+        if SYSTYPE != 'Other': 
+            ffmpeg = toolcfg.binaries.ffmpeg
         ffmpeg_command = [
-            toolcfg.binaries.ffmpeg,
+            ffmpeg,
             '-y',
             '-hide_banner',
             '-loglevel', 'error',
@@ -377,20 +409,23 @@ class AppleMusicClient:
                 aria2c_input += f'{track.url}\n'
                 aria2c_input += f'\tdir={dname}\n'
                 aria2c_input += f'\tout={fname}\n'
-
+                # Create temp folder if it doesn't already exist
+                if not os.path.exists(toolcfg.folder.temp): os.mkdir(toolcfg.folder.temp) 
+                if not os.path.exists(toolcfg.folder.output): os.mkdir(toolcfg.folder.output) 
                 aria2c_infile = os.path.join(toolcfg.folder.temp, 'aria2c_infile.txt')
                 track_fname = os.path.join(track_fname)
-                with open(aria2c_infile, 'w') as fd:
+                with open(aria2c_infile, 'w',encoding='utf-8') as fd:
+                    # print(aria2c_input)
                     fd.write(aria2c_input)
-                
+                aria2c = 'aria2c'
+                if SYSTYPE != 'Other': 
+                    aria2c = toolcfg.binaries.aria2c
                 aria2c_opts = [
-                    toolcfg.binaries.aria2c,
+                    aria2c,
                     '--allow-overwrite', 'false',
                     '--quiet', 'true', # false
                     '--continue', 'true',
                     '--summary-interval=0',
-                    '--async-dns=false',
-                    '--disable-ipv6=true',
                     '--retry-wait=5',
                     '-x', '16',
                     '-s', '16',
@@ -496,7 +531,16 @@ class AppleMusicClient:
 
     def do_merge(self, ats, vfn, output):
         self.log.info("+ Muxing Video + Audio Using MKVMerge")
-        mkvmerge_command = [toolcfg.binaries.mkvmerge,
+        command = ['ffmpeg',
+                        "-i",
+                        vfn,
+                        "-i",
+                        ats,
+                        "-map 0:v",
+                        "-map 1:a",
+                        output]
+        if SYSTYPE != 'Other': 
+            command = [toolcfg.binaries.mkvmerge,
                             "--output",
                             output,
                             "--no-date",
@@ -510,13 +554,13 @@ class AppleMusicClient:
                             "(",
                             ats,
                             ")"]
-        subprocess.run(mkvmerge_command)
+        subprocess.run(command)
 
     def fetch_titles(self):
-        self.log.info('+ Starting Apple Music Ripper')
+        self.log.info('+ Starting Apple Music Download')
         # album music/ single track/ playlists
         if self.content_type in ('album', 'playlist'):
-            # No Single Track, Download Full Album
+            # No Single Track, Download Full Album 完整专辑
             if not self.url_track_id:
                 album_info = self.fetch_info(
                     ("albums" if self.content_type == 'album' else 'playlists'))
@@ -555,7 +599,7 @@ class AppleMusicClient:
                 if args.track_start:
                     tracks_list = tracks_list[(int(args.track_start) - 1):]
             else:
-                # Single Track
+                # Single Track 单曲模式
                 tracks_list = []
                 tracks_single = {
                     'id': self.url_track_id
@@ -563,9 +607,14 @@ class AppleMusicClient:
                 tracks_list.append(tracks_single)
 
             for track in tracks_list:
-                metadata, output_name = self.fetch_music_metadata(track["id"])
-                output_name = normalize(output_name)
-                self.contents_to_be_ripped.append((metadata, output_name))
+                # if track['attributes']['playParams']['kind'] == 'song':
+                try:
+                    metadata, output_name = self.fetch_music_metadata(track["id"])
+                    output_name = normalize(output_name)
+                    self.contents_to_be_ripped.append((metadata, output_name))
+                except KeyError:
+                    print(track,'error')
+                
         # music video
         elif self.content_type == 'music-video':
             video_info = self.fetch_info("music-videos", tid=self.url_main_id)
@@ -595,7 +644,7 @@ class AppleMusicClient:
         return self.contents_to_be_ripped
         
     def run(self, metadata, filename):
-
+        # print('filename',filename)
         self.filename = filename
         self.log.info(f'+ Downloading {filename}..')
         track_url, track_uri = self.extract_playlist_data(metadata)
@@ -621,8 +670,12 @@ class AppleMusicClient:
             return
         else:
             self.log.info("+ All Decrypting Complete")
+            folder_output = toolcfg.folder.output
+            if args.output:
+                folder_output = args.output
+            if not os.path.exists(folder_output): os.mkdir(folder_output)
             if self.content_type != 'music-video':
-                self.album_folder = os.path.join(toolcfg.folder.output, self.album_name)
+                self.album_folder = os.path.join(folder_output, self.album_name)
                 if not os.path.exists(self.album_folder):
                     os.mkdir(self.album_folder)
 
@@ -650,16 +703,18 @@ class AppleMusicClient:
         return True
 
 
-def unwanted_char(asin):
-    nfkd_form = unicodedata.normalize('NFKD', asin)
-    only_ascii = nfkd_form.encode('ASCII', 'ignore')
-    return only_ascii.decode("utf-8")
+# def unwanted_char(asin):
+#     nfkd_form = unicodedata.normalize('NFKD', asin)
+#     only_ascii = nfkd_form.encode('ASCII', 'ignore')
+#     return only_ascii.decode("utf-8")
 
 def normalize(outputfile):
-    outputfile = unwanted_char(outputfile)
-    outputfile = pathvalidate.sanitize_filename(outputfile)
-    outputfile = unidecode(outputfile)
-    outputfile = re.sub(r'[]!"#$%\'()*+,:;<=>?@\\^_-`|~[]', '', outputfile)
+    # outputfile = unwanted_char(outputfile)
+    # outputfile = pathvalidate.sanitize_filename(outputfile)
+    # outputfile = unidecode(outputfile)
+    # print('dreamfly',outputfile)
+    outputfile = outputfile.replace('/','-').replace(' ','').replace('-',' - ')
+    # outputfile = re.sub(r'[]!"#$%\'()*+,:;<=>?@\\^_-`|~[]', '', outputfile)
     outputfile = re.sub(r'\.{2,}', '.', outputfile)
 
     return outputfile
@@ -669,18 +724,21 @@ if __name__ == "__main__":
     print(BANNER)
 
     parser = argparse.ArgumentParser(
-        description='Apple Music Ripper')
+        description='Apple Music Download')
 
-    parser.add_argument('url', nargs='?', help='apple music title url')
+    parser.add_argument('url',nargs='?', help='apple music title url')
     parser.add_argument('-t', '--track', help='rip only specified track from album')
     parser.add_argument('-ts', '--track_start', help="rip starting at the track number provided")
-    parser.add_argument('-r', '--region', default='us', choices=['us', 'eu', 'br'], help='Apple Music Region')
+    parser.add_argument('-r', '--region', default='cn', choices=['us', 'eu', 'br', 'cn'], help='Apple Music Region')
     parser.add_argument("-d", "--debug", action="store_true", help="Enable debug logging")
     # don't use with music video, bad fps lol
-    parser.add_argument("-m4", "--mp4decrypt", dest="mp4_decrypt", action="store_true",
+    parser.add_argument("-m4", "--mp4decrypt", dest="mp4_decrypt", action="store_true", default='true',
                         help="Use mp4decrypt instead of shaka-packager to decrypt files")
     parser.add_argument('-k', '--skip-cleanup', action='store_true', help='skip cleanup step')
     parser.add_argument("--keys", action="store_true", help="show keys and exit")
+    parser.add_argument('-o','--output',help='setting folder for output,default value is output,use -o "/Users/dreamfly/Downloads/Apple Music" or -o "C:\\User\\dreamfly\\AppleMusic"')
+    parser.add_argument('-an','--name-with-album-number',default='false',help='setting name with album number,default value is false,use "-an true" or "--name-with-album-number true" to keep album number')
+    
     args_parsed = parser.parse_args()
 
     config_dict = {}
@@ -716,6 +774,8 @@ if __name__ == "__main__":
     client = AppleMusicClient()
     titles = client.fetch_titles()
     for metadata, filename in titles:
+        if(args.name_with_album_number != 'true'):
+            filename = filename[4:]
         if args.keys:
             logger.logkey('{}'.format(filename))
         client.run(metadata, filename)
