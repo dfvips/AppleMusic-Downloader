@@ -1,5 +1,9 @@
 ## AppleMusic-Downloader
 Download videos and audios from AppleMusic!
+## New
+1. Fix bugs
+2. Supports mac and linux environments
+3. Support Chinese
 
 ## How to use
 
