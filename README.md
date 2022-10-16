@@ -4,6 +4,10 @@ Download videos and audios from AppleMusic!
 1. Fix bugs
 2. Supports mac and linux environments
 3. Support Chinese
+## Necessary tools for mac and linux
+1. aria2c
+2. ffmpeg
+3. mp4decrypt
 
 ## How to use
 
