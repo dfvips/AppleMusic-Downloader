@@ -530,15 +530,19 @@ class AppleMusicClient:
         return True, key
 
     def do_merge(self, ats, vfn, output):
-        self.log.info("+ Muxing Video + Audio Using MKVMerge")
+        if args.output:
+            output = args.output + output.replace('output','')
+        self.log.info("+ Muxing Video + Audio")
         command = ['ffmpeg',
-                        "-i",
-                        vfn,
-                        "-i",
-                        ats,
-                        "-map 0:v",
-                        "-map 1:a",
-                        output]
+                        '-y',
+                        '-i', vfn,
+                        '-i', ats,
+                        '-map', '0:v',
+                        '-map', '1:a',
+                        '-c', 'copy',
+                        output.replace('mkv','mp4')]
+        self.log.info(vfn)
+        self.log.info(ats)
         if SYSTYPE != 'Other': 
             command = [toolcfg.binaries.mkvmerge,
                             "--output",
@@ -775,7 +779,7 @@ if __name__ == "__main__":
     titles = client.fetch_titles()
     for metadata, filename in titles:
         if(args.name_with_album_number != 'true'):
-            filename = filename[4:]
+            filename = re.sub('\d+\s-\s', '' ,filename)
         if args.keys:
             logger.logkey('{}'.format(filename))
         client.run(metadata, filename)
