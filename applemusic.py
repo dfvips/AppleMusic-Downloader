@@ -566,6 +566,7 @@ class AppleMusicClient:
         if self.content_type in ('album', 'playlist'):
             # No Single Track, Download Full Album 完整专辑
             if not self.url_track_id:
+                args.single = 'false'
                 album_info = self.fetch_info(
                     ("albums" if self.content_type == 'album' else 'playlists'))
                 if not album_info:
@@ -603,6 +604,7 @@ class AppleMusicClient:
                 if args.track_start:
                     tracks_list = tracks_list[(int(args.track_start) - 1):]
             else:
+                args.single = 'true'
                 # Single Track 单曲模式
                 tracks_list = []
                 tracks_single = {
@@ -679,10 +681,12 @@ class AppleMusicClient:
                 folder_output = args.output
             if not os.path.exists(folder_output): os.mkdir(folder_output)
             if self.content_type != 'music-video':
-                self.album_folder = os.path.join(folder_output, self.album_name)
-                if not os.path.exists(self.album_folder):
-                    os.mkdir(self.album_folder)
-
+                if args.folder == 'true' or args.single == 'false':
+                    self.album_folder = os.path.join(folder_output, self.album_name)
+                    if not os.path.exists(self.album_folder):
+                        os.mkdir(self.album_folder)
+                else:
+                    self.album_folder = folder_output
                 ffmpeg_atrack = wvdecrypt_config.get_filename(toolcfg.filenames.decrypted_filename_audio_ff)
                 self.oufn = wvdecrypt_config.get_filename(toolcfg.filenames.muxed_audio_filename)
                 self.do_ffmpeg_fix(ffmpeg_atrack)
@@ -741,6 +745,7 @@ if __name__ == "__main__":
     parser.add_argument('-k', '--skip-cleanup', action='store_true', help='skip cleanup step')
     parser.add_argument("--keys", action="store_true", help="show keys and exit")
     parser.add_argument('-o','--output',help='setting folder for output,default value is output,use -o "/Users/dreamfly/Downloads/Apple Music" or -o "C:\\User\\dreamfly\\AppleMusic"')
+    parser.add_argument('-f','--folder',default='false',help='setting an album folder for output,default value is false,only valid for single')
     parser.add_argument('-an','--name-with-album-number',default='false',help='setting name with album number,default value is false,use "-an true" or "--name-with-album-number true" to keep album number')
     
     args_parsed = parser.parse_args()
